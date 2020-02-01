@@ -9,6 +9,9 @@ import com.ubertob.connectfour.Player.Nought
  * + board with player1 chip
  * + pile up chips
  * + player2
+ *
+ * + Pile class
+ * + find winner
  */
 fun main() {
 
@@ -18,12 +21,18 @@ fun main() {
         a, b,
         a, b,
         a, b,
-        a, b
+        d, d
     )
 
     val emptyBoard = Board()
     moves
-        .fold(emptyBoard) { board, move -> board.place(move) }
+        .fold(emptyBoard) { board, move ->
+            if (board.hasWinner) board
+            else {
+                board.show()
+                board.place(move)
+            }
+        }
         .show()
 }
 
@@ -41,17 +50,33 @@ enum class Player(val sign: Char) {
 
 data class Move(val player: Player, val column: Column)
 
-fun Row.render(moves: List<Move>): String {
-
-    val rowChars = Column.values().map { column ->
-        val pile = moves.filter { column == it.column }
-        if (pile.size > this.ordinal)
-            pile[this.ordinal].player.sign
+data class Pile(val players: List<Player>) {
+    fun player(row: Row): Char {
+        return if (players.size > row.ordinal)
+            players[row.ordinal].sign
         else
             ' '
     }
+}
 
-    return rowChars.joinToString(separator = "|", prefix = "|", postfix = "|")
+fun Row.render(piles: List<Pile>): String {
+    return piles.joinToString(separator = "|", prefix = "|", postfix = "|") {
+        it.player(this).toString()
+    }
+}
+
+data class Position(val column: Column, val row: Row) {
+    fun south(): Position? =
+        if (row == Row.r1) null
+        else copy(row = Row.values()[row.ordinal - 1])
+
+    fun east(): Position? =
+        if (column == g) null
+        else copy(column = Column.values()[column.ordinal + 1])
+
+    fun west(): Position? =
+        if (column == a) null
+        else copy(column = Column.values()[column.ordinal - 1])
 }
 
 class Board(
@@ -61,9 +86,54 @@ class Board(
         if (moves.isEmpty()) Nought
         else moves.last().player.opponent()
 
+    private val piles = Column.values()
+        .map { column -> moves.filter { it.column == column } }
+        .map { Pile(it.map { it.player }) }
+
+    val hasWinner: Boolean get() = winner() != null
+
+    private fun winner(): Player? =
+        if (moves.isEmpty()) null
+        else checkWinner(moves.last().column)
+
+    private fun playerAtPosition(position: Position): Player? =
+        piles[position.column.ordinal].run {
+            if (players.size > position.row.ordinal)
+                players[position.row.ordinal]
+            else
+                null
+        }
+
+    private fun checkWinner(column: Column): Player? {
+        val pile = piles[column.ordinal]
+        if (pile.players.isEmpty()) return null
+        val player = pile.players.last()
+        val position = Position(column, Row.values()[pile.players.size - 1])
+
+        val vertical = countDirection(position, Position::south, player) >= 4
+        val horizontal = countDirection(position, Position::east, player) +
+            countDirection(position, Position::west, player) - 1 >= 4
+
+        return if (vertical || horizontal) player else null
+    }
+
+    private fun countDirection(position: Position, f: Position.() -> Position?, player: Player) =
+        go(position, f)
+            .takeWhile { playerAtPosition(it) == player }
+            .count()
+
+    private fun go(position: Position, f: Position.() -> Position?): List<Position> {
+        return listOf(
+            position,
+            position.f(),
+            position.f()?.f(),
+            position.f()?.f()?.f()
+        ).takeWhile { it != null }.filterNotNull()
+    }
+
     fun show() {
         Row.values().reversed().forEach {
-            println(it.render(moves))
+            println(it.render(piles))
         }
         println("|-+-+-+-+-+-+-|")
         println(
@@ -71,6 +141,10 @@ class Board(
                 it.name
             }
         )
+        winner().let {
+            if (it == null) println("\nThere is no winner")
+            else println("\nThe winner is $it")
+        }
     }
 
     fun place(column: Column): Board {
